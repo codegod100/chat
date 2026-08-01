@@ -1,0 +1,27 @@
+[package]
+name = "chat"
+version = "0.1.0"
+edition = "2021"
+description = "Simple Vidya LLM chat — keys from OpenBao"
+license = "MIT"
+publish = false
+
+[dependencies]
+vidya = { path = "../vidya" }
+eframe = { version = "0.31", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
+egui = "0.31"
+egui_commonmark = { version = "0.20", default-features = false, features = [
+    "better_syntax_highlighting",
+] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls",
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

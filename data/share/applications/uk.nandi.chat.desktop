@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=Chat
+GenericName=LLM Chat
+Comment=Simple Vidya LLM chat with keys from OpenBao
+Exec=chat
+Icon=uk.nandi.chat
+Terminal=false
+Categories=Network;Utility;
+Keywords=LLM;chat;AI;OpenBao;Vidya;
+StartupNotify=true
+StartupWMClass=uk.nandi.chat
+DBusActivatable=false
+SingleMainWindow=true
