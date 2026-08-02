@@ -6,18 +6,39 @@ description = "Simple Vidya LLM chat — keys from OpenBao"
 license = "MIT"
 publish = false
 
+[lib]
+name = "chat"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "chat"
+path = "src/main.rs"
+
 [dependencies]
 vidya = { path = "../vidya" }
+# Shared glow + fonts only — wayland/x11 must stay off the Android graph
+# (feature unification would pull them into the APK and can kill the activity).
 eframe = { version = "0.31", default-features = false, features = [
     "default_fonts",
     "glow",
-    "wayland",
-    "x11",
 ] }
 egui = "0.31"
 egui_commonmark = { version = "0.20", default-features = false, features = [
     "better_syntax_highlighting",
 ] }
+# LaTeX math → Typst → raster (via egui_commonmark render_math_fn)
+mitex = "0.2"
+typst = "0.14"
+typst-as-lib = { version = "0.15", default-features = false, features = [
+    "typst-kit-fonts",
+    "typst-kit-embed-fonts",
+] }
+typst-kit = { version = "0.14", default-features = false, features = [
+    "fonts",
+    "embed-fonts",
+] }
+typst-render = "0.14"
 reqwest = { version = "0.12", default-features = false, features = [
     "blocking",
     "json",
@@ -25,3 +46,18 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[target.'cfg(not(target_os = "android"))'.dependencies]
+eframe = { version = "0.31", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.31", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "android-native-activity",
+] }

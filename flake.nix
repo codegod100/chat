@@ -58,6 +58,44 @@
       '';
 
       desktopTemplate = ./data/share/applications/uk.nandi.chat.desktop;
+      iconSvg = ./assets/uk.nandi.chat.svg;
+
+      # Install FreeDesktop entry + hicolor icons under a share root.
+      # Wayland compositors (GNOME) look up icons by app_id via the *session*
+      # data dirs — a temporary XDG_DATA_DIRS on the child alone is not enough.
+      # Absolute Icon= is the reliable dock/overview path.
+      # Shell fragment: $1=shareDir $2=execPath (absolute).
+      installDesktopShareSh = ''
+        _share="$1"
+        _exec="$2"
+        _icon="$_share/icons/hicolor/256x256/apps/uk.nandi.chat.png"
+        _exec_esc=''${_exec//\\/\\\\}
+        _exec_esc=''${_exec_esc//&/\\&}
+        _icon_esc=''${_icon//\\/\\\\}
+        _icon_esc=''${_icon_esc//&/\\&}
+        mkdir -p "$_share/applications"
+        mkdir -p "$_share/icons/hicolor/scalable/apps"
+        install -m 644 "${desktopTemplate}" "$_share/applications/uk.nandi.chat.desktop"
+        # install(1), not cp: nix-store sources are 0444 and a plain cp preserves
+        # that mode, so the next run can't overwrite the installed SVG.
+        install -m 644 "${iconSvg}" "$_share/icons/hicolor/scalable/apps/uk.nandi.chat.svg"
+        for sz in 16 24 32 48 64 128 256; do
+          mkdir -p "$_share/icons/hicolor/''${sz}x''${sz}/apps"
+          rsvg-convert -w "$sz" -h "$sz" "${iconSvg}" \
+            -o "$_share/icons/hicolor/''${sz}x''${sz}/apps/uk.nandi.chat.png"
+          chmod u+w "$_share/icons/hicolor/''${sz}x''${sz}/apps/uk.nandi.chat.png" 2>/dev/null || true
+        done
+        sed -i \
+          -e "s|^Exec=.*|Exec=$_exec_esc|" \
+          -e "s|^Icon=.*|Icon=$_icon_esc|" \
+          "$_share/applications/uk.nandi.chat.desktop"
+        if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+          gtk-update-icon-cache -f "$_share/icons/hicolor" 2>/dev/null || true
+        fi
+        if command -v update-desktop-database >/dev/null 2>&1; then
+          update-desktop-database "$_share/applications" 2>/dev/null || true
+        fi
+      '';
     in
     {
       packages = forAllSystems (
@@ -83,17 +121,30 @@
             sourceRoot = "chat-src/chat";
             cargoLock.lockFile = ./Cargo.lock;
 
-            nativeBuildInputs = [ pkgs.makeWrapper ];
+            nativeBuildInputs = [
+              pkgs.makeWrapper
+              pkgs.librsvg
+            ];
             buildInputs = libs;
 
             postInstall = ''
               wrapProgram $out/bin/chat \
                 --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath libs}
 
+              install -Dm644 ${iconSvg} \
+                $out/share/icons/hicolor/scalable/apps/uk.nandi.chat.svg
+              for sz in 16 24 32 48 64 128 256; do
+                mkdir -p $out/share/icons/hicolor/''${sz}x''${sz}/apps
+                rsvg-convert -w "$sz" -h "$sz" ${iconSvg} \
+                  -o $out/share/icons/hicolor/''${sz}x''${sz}/apps/uk.nandi.chat.png
+              done
+
               install -Dm644 data/share/applications/uk.nandi.chat.desktop \
                 $out/share/applications/uk.nandi.chat.desktop
               substituteInPlace $out/share/applications/uk.nandi.chat.desktop \
-                --replace-fail 'Exec=chat' "Exec=$out/bin/chat"
+                --replace-fail 'Exec=chat' "Exec=$out/bin/chat" \
+                --replace-fail 'Icon=uk.nandi.chat' \
+                  "Icon=$out/share/icons/hicolor/256x256/apps/uk.nandi.chat.png"
             '';
 
             meta = {
@@ -121,68 +172,71 @@
             rustc
             cargo
             pkg-config
+            librsvg
+            gtk3
+            desktop-file-utils
           ];
-
-          stageXdg = ''
-            xdg="$PWD/target/xdg-data"
-            mkdir -p "$xdg/applications"
-            desktop="$xdg/applications/uk.nandi.chat.desktop"
-            install -m 644 "${desktopTemplate}" "$desktop"
-            install -m 644 "$desktop" "$PWD/target/uk.nandi.chat.desktop"
-            export XDG_DATA_DIRS="$xdg''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
-          '';
 
           build = pkgs.writeShellApplication {
             name = "chat-build";
             runtimeInputs = cargoTools;
             text = ''
               ${cargoPreamble libPath}
-              ${stageXdg}
               echo "→ cargo build $*"
               cargo build "$@"
               bin="$PWD/target/debug/chat"
               if [ -x "$PWD/target/release/chat" ] && printf '%s\n' "$*" | grep -q -- '--release'; then
                 bin="$PWD/target/release/chat"
               fi
-              if [ -x "$bin" ]; then
-                bin_esc=''${bin//\\/\\\\}
-                bin_esc=''${bin_esc//&/\\&}
-                sed -i -e "s|^Exec=.*|Exec=$bin_esc|" \
-                  "$PWD/target/xdg-data/applications/uk.nandi.chat.desktop" \
-                  "$PWD/target/uk.nandi.chat.desktop"
-              fi
               echo "✓ $bin"
             '';
           };
 
-          chatApp = pkgs.writeShellApplication {
+          # Cargo build, install .desktop+icons into XDG_DATA_HOME (so GNOME/Wayland
+          # can resolve Icon= by app_id), then gtk-launch.
+          desktopApp = pkgs.writeShellApplication {
             name = "chat";
             runtimeInputs = cargoTools;
             text = ''
               ${cargoPreamble libPath}
-              ${stageXdg}
+              echo "→ cargo build"
+              cargo build
 
-              bin="$PWD/target/debug/chat"
-              bin_esc=''${bin//\\/\\\\}
-              bin_esc=''${bin_esc//&/\\&}
-              sed -i -e "s|^Exec=.*|Exec=$bin_esc|" \
-                "$PWD/target/xdg-data/applications/uk.nandi.chat.desktop" \
+              EXEC="$PWD/target/debug/chat"
+              # Session-visible FreeDesktop tree (not a private target/xdg-data):
+              # Wayland shells ignore child-only XDG_DATA_DIRS for dock icons.
+              DATA_HOME="''${XDG_DATA_HOME:-$HOME/.local/share}"
+              echo "→ install launcher+icon → $DATA_HOME ({applications,icons}/…)"
+              (
+                set -- "$DATA_HOME" "$EXEC"
+                ${installDesktopShareSh}
+              )
+              # Mirror under target/ for inspection.
+              (
+                set -- "$PWD/target/xdg-data" "$EXEC"
+                ${installDesktopShareSh}
+              )
+              install -m 644 "$DATA_HOME/applications/uk.nandi.chat.desktop" \
                 "$PWD/target/uk.nandi.chat.desktop"
 
-              echo "→ cargo run $*"
-              echo "    app_id=uk.nandi.chat  XDG_DATA_DIRS=$PWD/target/xdg-data:…"
-              exec cargo run -- "$@"
+              export XDG_DATA_DIRS="$DATA_HOME''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+              ICON="$DATA_HOME/icons/hicolor/256x256/apps/uk.nandi.chat.png"
+              echo "→ gtk-launch uk.nandi.chat  (Icon=$ICON, Exec=$EXEC)"
+              if command -v gtk-launch >/dev/null 2>&1; then
+                exec gtk-launch uk.nandi.chat "$@"
+              fi
+              exec "$EXEC" "$@"
             '';
           };
         in
         {
           default = {
             type = "app";
-            program = "${chatApp}/bin/chat";
+            program = "${desktopApp}/bin/chat";
           };
           chat = {
             type = "app";
-            program = "${chatApp}/bin/chat";
+            program = "${desktopApp}/bin/chat";
           };
           build = {
             type = "app";
@@ -207,13 +261,16 @@
               rust-analyzer
               pkg-config
               glib
+              gtk3
+              librsvg
+              desktop-file-utils
             ];
             buildInputs = libs;
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath libs;
             RUST_BACKTRACE = "1";
             shellHook = ''
               echo "Chat dev shell"
-              echo "  nix run / nix run .#chat   # cargo run"
+              echo "  nix run / nix run .#chat   # cargo build + gtk-launch .desktop"
               echo "  nix run .#build            # cargo build"
               echo "  cargo run                  # from this shell"
             '';

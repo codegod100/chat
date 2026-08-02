@@ -3,7 +3,19 @@
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Mutex;
 use std::time::Duration;
+
+/// In-process token override (Android paste UI / tests). Checked first by
+/// [`load_stored_token`].
+static TOKEN_OVERRIDE: Mutex<Option<String>> = Mutex::new(None);
+
+/// Set a session token used before env / files (empty clears).
+pub fn set_token_override(token: impl Into<String>) {
+    let t = token.into().trim().to_string();
+    let mut guard = TOKEN_OVERRIDE.lock().unwrap_or_else(|e| e.into_inner());
+    *guard = if t.is_empty() { None } else { Some(t) };
+}
 
 const DEFAULT_ADDR: &str = "https://openbao.boxd.sh";
 const KEYS_PATH: &str = "secret/data/ai-api-keys";
@@ -136,8 +148,16 @@ pub fn resolve_addr() -> String {
         .unwrap_or_else(|_| DEFAULT_ADDR.into())
 }
 
-/// Prefer env tokens, then `~/.vault-token` / `~/.bao-token`.
+/// Prefer override → env tokens → token files (desktop + Android adb paths).
 pub fn load_stored_token() -> String {
+    if let Ok(guard) = TOKEN_OVERRIDE.lock() {
+        if let Some(t) = guard.as_ref() {
+            if !t.is_empty() {
+                return t.clone();
+            }
+        }
+    }
+
     if let Ok(t) = std::env::var("BAO_TOKEN").or_else(|_| std::env::var("VAULT_TOKEN")) {
         let t = t.trim().to_string();
         if !t.is_empty() {
@@ -154,6 +174,9 @@ pub fn load_stored_token() -> String {
             .map(|h| std::path::PathBuf::from(h).join(".vault-token")),
         home.as_ref()
             .map(|h| std::path::PathBuf::from(h).join(".bao-token")),
+        // adb push helpers for phone / Waydroid installs
+        Some(std::path::PathBuf::from("/data/local/tmp/bao-token")),
+        Some(std::path::PathBuf::from("/sdcard/bao-token")),
     ]
     .into_iter()
     .flatten()
@@ -210,4 +233,29 @@ fn extract_error_message(body: &str) -> Option<String> {
     v.get("error")
         .and_then(|e| e.as_str())
         .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fetch_keys_smoke() {
+        // Skip when no token is available (CI / fresh machines).
+        if load_stored_token().is_empty() {
+            eprintln!("skip: no OpenBao token");
+            return;
+        }
+        let keys = fetch_ai_keys().expect("fetch ai-api-keys");
+        assert!(
+            keys.keys().any(|k| k.ends_with("_API_KEY") || k.contains("KEY")),
+            "expected at least one key field, got {:?}",
+            keys.keys().collect::<Vec<_>>()
+        );
+        eprintln!(
+            "ok: {} keys from {}",
+            keys.len(),
+            resolve_addr()
+        );
+    }
 }
