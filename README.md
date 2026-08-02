@@ -56,6 +56,18 @@ just publish-apk          # → https://chat-apk.boxd.sh/chat.apk
 
 Needs Android NDK (`ANDROID_NDK_HOME`, default `~/.local/share/android-ndk-r29`), `cargo-apk`, and `rustup target add aarch64-linux-android`.
 
+## CI / Cachix
+
+On every push to `main`, GitHub Actions builds `nix build .#chat` and pushes store paths to [codegod100.cachix.org](https://codegod100.cachix.org) (see `.github/workflows/cachix.yml`).
+
+Required repository secret on [codegod100/chat](https://github.com/codegod100/chat):
+
+| Secret | Purpose |
+|--------|---------|
+| `OPENBAO_TOKEN` | Read token for OpenBao; CI fetches `CACHIX_AUTH_TOKEN` from `secret/data/cachix` (and related KV paths), same as sleek |
+
+Set with: `gh secret set OPENBAO_TOKEN -R codegod100/chat`
+
 ## License
 
 MIT
