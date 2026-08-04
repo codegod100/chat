@@ -56,17 +56,42 @@ just publish-apk          # → https://chat-apk.boxd.sh/chat.apk
 
 Needs Android NDK (`ANDROID_NDK_HOME`, default `~/.local/share/android-ndk-r29`), `cargo-apk`, and `rustup target add aarch64-linux-android`.
 
-## CI / Cachix
+## CI
 
-On every push to `main`, GitHub Actions builds `nix build .#chat` and pushes store paths to [codegod100.cachix.org](https://codegod100.cachix.org) (see `.github/workflows/cachix.yml`).
+On every push to `main`:
+
+- **Cachix** — `nix build .#chat` and push store paths to [codegod100.cachix.org](https://codegod100.cachix.org) (`.github/workflows/cachix.yml`)
+- **APK** — build aarch64 release and publish to [https://chat-apk.boxd.sh/chat.apk](https://chat-apk.boxd.sh/chat.apk) (`.github/workflows/apk.yml`); also uploads `chat.apk` as a GitHub Actions artifact
 
 Required repository secret on [codegod100/chat](https://github.com/codegod100/chat):
 
 | Secret | Purpose |
 |--------|---------|
-| `OPENBAO_TOKEN` | Read token for OpenBao; CI fetches `CACHIX_AUTH_TOKEN` from `secret/data/cachix` (and related KV paths), same as sleek |
+| `OPENBAO_TOKEN` | Read token for OpenBao; CI fetches KV secrets at runtime |
 
-Set with: `gh secret set OPENBAO_TOKEN -R codegod100/chat`
+OpenBao paths (via `fetch-openbao-env.sh`):
+
+| Path | Keys |
+|------|------|
+| `secret/data/cachix` | `CACHIX_AUTH_TOKEN` |
+| `secret/data/chat` | `BOXD_TOKEN`, `CHAT_ANDROID_KEYSTORE_B64` |
+
+Optional keystore fields in `secret/data/chat` (defaults: password `android`, alias `chat`):
+
+| Key | Purpose |
+|-----|---------|
+| `CHAT_ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+| `CHAT_ANDROID_KEY_ALIAS` | Key alias |
+| `CHAT_ANDROID_KEY_PASSWORD` | Key password |
+
+Seed the keystore secret once from a local release build:
+
+```bash
+base64 -w0 ~/.android/chat-release.keystore
+# → store as CHAT_ANDROID_KEYSTORE_B64 in secret/data/chat
+```
+
+Set the repo secret with: `gh secret set OPENBAO_TOKEN -R codegod100/chat`
 
 ## License
 
