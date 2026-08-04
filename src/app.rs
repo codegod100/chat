@@ -562,10 +562,12 @@ impl eframe::App for ChatApp {
             .frame(
                 egui::Frame::new()
                     .fill(th.palette.headerbar_bg)
-                    .inner_margin(egui::Margin::symmetric(
-                        th.spacing.md as i8,
-                        th.spacing.sm as i8,
-                    ))
+                    .inner_margin(egui::Margin {
+                        left: th.spacing.md as i8,
+                        right: th.spacing.lg as i8,
+                        top: th.spacing.sm as i8,
+                        bottom: th.spacing.sm as i8,
+                    })
                     .stroke(egui::Stroke::new(1.0_f32, th.palette.border_soft)),
             )
             .show(ctx, |ui| {
@@ -976,16 +978,31 @@ impl ChatApp {
     fn ui_compose(&mut self, ui: &mut egui::Ui, th: &Theme, send_chord: bool) {
         let mut do_send = send_chord;
         let mut do_stop = false;
+        let gap = th.spacing.sm;
+        let trail_inset = th.spacing.md;
 
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = th.spacing.sm;
+        // Pin the action on the right with a visible inset from the bar edge.
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.add_space(trail_inset);
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                if self.streaming {
+                    if destructive_button(ui, th, "Stop")
+                        .on_hover_text("Stop generating (Esc)")
+                        .clicked()
+                    {
+                        do_stop = true;
+                    }
+                } else {
+                    ui.add_enabled_ui(self.keys_ok && self.editing_idx.is_none(), |ui| {
+                        if primary_button(ui, th, "Send").clicked() {
+                            do_send = true;
+                        }
+                    });
+                }
+            });
+            ui.add_space(gap);
 
-            let trail_label = if self.streaming { "Stop" } else { "Send" };
-            let trail_w = compose_action_width(ui, th, trail_label);
-            let trail_gutter = th.spacing.sm;
-            let field_w =
-                (ui.available_width() - trail_w - th.spacing.sm - trail_gutter).max(1.0);
-
+            let field_w = ui.available_width().max(1.0);
             ui.allocate_ui_with_layout(
                 egui::vec2(field_w, 0.0),
                 Layout::top_down(Align::LEFT),
@@ -1000,22 +1017,6 @@ impl ChatApp {
                     }
                 },
             );
-
-            if self.streaming {
-                if destructive_button(ui, th, "Stop")
-                    .on_hover_text("Stop generating (Esc)")
-                    .clicked()
-                {
-                    do_stop = true;
-                }
-            } else {
-                ui.add_enabled_ui(self.keys_ok && self.editing_idx.is_none(), |ui| {
-                    if primary_button(ui, th, "Send").clicked() {
-                        do_send = true;
-                    }
-                });
-            }
-            ui.add_space(trail_gutter);
         });
 
         if do_stop {
@@ -1025,18 +1026,6 @@ impl ChatApp {
             self.send();
         }
     }
-}
-
-fn compose_action_width(ui: &egui::Ui, th: &Theme, label: &str) -> f32 {
-    let pad_x = th.spacing.lg;
-    let galley = ui.fonts(|fonts| {
-        fonts.layout_no_wrap(
-            label.to_owned(),
-            egui::FontId::proportional(th.type_scale.body),
-            th.palette.accent_fg,
-        )
-    });
-    galley.size().x + pad_x * 2.0
 }
 
 fn truncate(s: &str, max: usize) -> String {
