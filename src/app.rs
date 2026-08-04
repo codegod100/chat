@@ -566,7 +566,7 @@ impl eframe::App for ChatApp {
                         left: th.spacing.md as i8,
                         right: th.spacing.xl as i8,
                         top: th.spacing.sm as i8,
-                        bottom: th.spacing.sm as i8,
+                        bottom: th.spacing.md as i8,
                     })
                     .stroke(egui::Stroke::new(1.0_f32, th.palette.border_soft)),
             )
