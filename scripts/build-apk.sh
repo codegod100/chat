@@ -100,28 +100,45 @@ fi
 
 ensure_release_signing() {
   local keystore="$HOME/.android/chat-release.keystore"
-  if [[ ! -f "$keystore" ]]; then
+  local store_pass="${CHAT_ANDROID_KEYSTORE_PASSWORD:-android}"
+  local key_alias="${CHAT_ANDROID_KEY_ALIAS:-chat}"
+  local key_pass="${CHAT_ANDROID_KEY_PASSWORD:-android}"
+  mkdir -p "$HOME/.android"
+
+  if [[ -n "${CHAT_ANDROID_KEYSTORE_B64:-}" ]]; then
+    echo "restoring release keystore from CHAT_ANDROID_KEYSTORE_B64" >&2
+    printf '%s' "$CHAT_ANDROID_KEYSTORE_B64" | base64 -d >"$keystore"
+  elif [[ ! -f "$keystore" ]]; then
     echo "generating release keystore at $keystore" >&2
-    mkdir -p "$HOME/.android"
     keytool -genkeypair -v \
       -keystore "$keystore" \
-      -alias chat \
+      -alias "$key_alias" \
       -keyalg RSA -keysize 2048 -validity 10000 \
-      -storepass android -keypass android \
+      -storepass "$store_pass" -keypass "$key_pass" \
       -dname "CN=Chat, OU=nandi.uk, O=nandi, L=Unknown, ST=Unknown, C=US" \
       >/dev/null
   fi
-  if ! grep -q 'signing.release' "$APP/Cargo.toml"; then
-    cat >>"$APP/Cargo.toml" <<EOF
 
+  # cargo-apk reads signing metadata from Cargo.toml; inject a fresh block each build.
+  python3 - "$APP/Cargo.toml" "$keystore" "$store_pass" "$key_alias" "$key_pass" <<'PY'
+import pathlib, re, sys
+path, keystore, store_pass, key_alias, key_pass = sys.argv[1:6]
+text = pathlib.Path(path).read_text()
+text = re.sub(
+    r"\n\[package\.metadata\.android\.signing\.release\][\s\S]*?(?=\n\[|\Z)",
+    "",
+    text,
+    count=1,
+)
+block = f"""
 [package.metadata.android.signing.release]
-path = "$keystore"
-keystore_password = "android"
-key_alias = "chat"
-key_password = "android"
-EOF
-    echo "note: appended signing.release to android/Cargo.toml (local only)" >&2
-  fi
+path = "{keystore}"
+keystore_password = "{store_pass}"
+key_alias = "{key_alias}"
+key_password = "{key_pass}"
+"""
+pathlib.Path(path).write_text(text.rstrip() + block)
+PY
 }
 
 profile=debug
@@ -169,6 +186,9 @@ fi
 
 if [[ "$RELEASE" -eq 1 ]]; then
   keystore="$HOME/.android/chat-release.keystore"
+  store_pass="${CHAT_ANDROID_KEYSTORE_PASSWORD:-android}"
+  key_alias="${CHAT_ANDROID_KEY_ALIAS:-chat}"
+  key_pass="${CHAT_ANDROID_KEY_PASSWORD:-android}"
   if command -v apksigner >/dev/null; then
     echo "signing $apk (v2+v3)" >&2
     # Prefer v2 (+ v3). Pure v3-only packages confuse some OEM installers.
@@ -191,9 +211,9 @@ PY
     fi
     apksigner sign \
       --ks "$keystore" \
-      --ks-key-alias chat \
-      --ks-pass pass:android \
-      --key-pass pass:android \
+      --ks-key-alias "$key_alias" \
+      --ks-pass "pass:$store_pass" \
+      --key-pass "pass:$key_pass" \
       --v1-signing-enabled true \
       --v2-signing-enabled true \
       --v3-signing-enabled true \

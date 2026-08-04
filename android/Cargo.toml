@@ -67,8 +67,4 @@ icon = "@mipmap/ic_launcher"
 # ("App not installed") because extractNativeLibs defaults to false.
 extract_native_libs = true
 
-[package.metadata.android.signing.release]
-path = "/home/nandi/.android/chat-release.keystore"
-keystore_password = "android"
-key_alias = "chat"
-key_password = "android"
+# Release signing is injected at build time by scripts/build-apk.sh (local + CI).
