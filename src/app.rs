@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use eframe::egui::{self, Align, Event, Key, Layout, RichText, ScrollArea, TextEdit};
 use vidya::{
-    apply, body, button, destructive_button, dialog, dim_label, lead_trail, primary_button,
+    apply, body, button, destructive_button, dialog, dim_label, primary_button,
     reserve_system_chrome, text_field_multiline, text_field_singleline, title, Theme, TypeScale,
 };
 
@@ -562,10 +562,12 @@ impl eframe::App for ChatApp {
             .frame(
                 egui::Frame::new()
                     .fill(th.palette.headerbar_bg)
-                    .inner_margin(egui::Margin::symmetric(
-                        th.spacing.md as i8,
-                        th.spacing.sm as i8,
-                    ))
+                    .inner_margin(egui::Margin {
+                        left: th.spacing.md as i8,
+                        right: th.spacing.xl as i8,
+                        top: th.spacing.sm as i8,
+                        bottom: th.spacing.md as i8,
+                    })
                     .stroke(egui::Stroke::new(1.0_f32, th.palette.border_soft)),
             )
             .show(ctx, |ui| {
@@ -977,34 +979,44 @@ impl ChatApp {
         let mut do_send = send_chord;
         let mut do_stop = false;
 
-        lead_trail(
-            ui,
-            |ui| {
-                let resp = text_field_multiline(ui, th, &mut self.draft, 3);
-                self.compose_focused = resp.has_focus();
-                if self.focus_compose_once && self.keys_ok {
-                    resp.request_focus();
-                    self.focus_compose_once = false;
-                }
-            },
-            |ui| {
-                ui.add_space(th.spacing.sm);
-                if self.streaming {
-                    if destructive_button(ui, th, "Stop")
-                        .on_hover_text("Stop generating (Esc)")
-                        .clicked()
-                    {
-                        do_stop = true;
+        // Always LTR: [field][gap][Send/Stop]. Frame already insets the right edge (xl).
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = th.spacing.sm;
+
+            let trail_label = if self.streaming { "Stop" } else { "Send" };
+            let trail_w = compose_action_width(ui, th, trail_label);
+            let field_w = (ui.available_width() - trail_w - th.spacing.sm).max(1.0);
+
+            ui.allocate_ui_with_layout(
+                egui::vec2(field_w, 0.0),
+                Layout::top_down(Align::LEFT),
+                |ui| {
+                    ui.set_width(field_w);
+                    ui.set_max_width(field_w);
+                    let resp = text_field_multiline(ui, th, &mut self.draft, 3);
+                    self.compose_focused = resp.has_focus();
+                    if self.focus_compose_once && self.keys_ok {
+                        resp.request_focus();
+                        self.focus_compose_once = false;
                     }
-                } else {
-                    ui.add_enabled_ui(self.keys_ok && self.editing_idx.is_none(), |ui| {
-                        if primary_button(ui, th, "Send").clicked() {
-                            do_send = true;
-                        }
-                    });
+                },
+            );
+
+            if self.streaming {
+                if destructive_button(ui, th, "Stop")
+                    .on_hover_text("Stop generating (Esc)")
+                    .clicked()
+                {
+                    do_stop = true;
                 }
-            },
-        );
+            } else {
+                ui.add_enabled_ui(self.keys_ok && self.editing_idx.is_none(), |ui| {
+                    if primary_button(ui, th, "Send").clicked() {
+                        do_send = true;
+                    }
+                });
+            }
+        });
 
         if do_stop {
             self.stop_generation();
@@ -1013,6 +1025,18 @@ impl ChatApp {
             self.send();
         }
     }
+}
+
+fn compose_action_width(ui: &egui::Ui, th: &Theme, label: &str) -> f32 {
+    let pad_x = th.spacing.lg;
+    let galley = ui.fonts(|fonts| {
+        fonts.layout_no_wrap(
+            label.to_owned(),
+            egui::FontId::proportional(th.type_scale.body),
+            th.palette.accent_fg,
+        )
+    });
+    galley.size().x + pad_x * 2.0
 }
 
 fn truncate(s: &str, max: usize) -> String {
