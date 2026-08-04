@@ -2,9 +2,9 @@
 
 use std::collections::BTreeMap;
 
-use eframe::egui::{self, Align, Event, Key, Layout, RichText, ScrollArea, TextEdit};
+use eframe::egui::{self, Align, Event, Key, Layout, RichText, ScrollArea, Sense, StrokeKind, TextEdit};
 use vidya::{
-    apply, body, button, destructive_button, dialog, dim_label, lead_trail, primary_button,
+    apply, body, button, destructive_button, dialog, dim_label, primary_button,
     reserve_system_chrome, text_field_multiline, text_field_singleline, title, Theme, TypeScale,
 };
 
@@ -977,36 +977,42 @@ impl ChatApp {
         let mut do_send = send_chord;
         let mut do_stop = false;
 
-        lead_trail(
-            ui,
-            |ui| {
-                let resp = text_field_multiline(ui, th, &mut self.draft, 3);
-                self.compose_focused = resp.has_focus();
-                if self.focus_compose_once && self.keys_ok {
-                    resp.request_focus();
-                    self.focus_compose_once = false;
-                }
-            },
-            |ui| {
-                // Keep actions LTR so egui doesn't mirror button label padding.
-                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                    if self.streaming {
-                        if destructive_button(ui, th, "Stop")
-                            .on_hover_text("Stop generating (Esc)")
-                            .clicked()
-                        {
-                            do_stop = true;
-                        }
-                    } else {
-                        ui.add_enabled_ui(self.keys_ok && self.editing_idx.is_none(), |ui| {
-                            if primary_button(ui, th, "Send").clicked() {
-                                do_send = true;
-                            }
-                        });
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = th.spacing.sm;
+
+            let trail_label = if self.streaming { "Stop" } else { "Send" };
+            let trail_w = compose_button_width(ui, th, trail_label);
+            let field_w = (ui.available_width() - trail_w - th.spacing.sm).max(1.0);
+
+            ui.allocate_ui_with_layout(
+                egui::vec2(field_w, 0.0),
+                Layout::top_down(Align::LEFT),
+                |ui| {
+                    ui.set_width(field_w);
+                    ui.set_max_width(field_w);
+                    let resp = text_field_multiline(ui, th, &mut self.draft, 3);
+                    self.compose_focused = resp.has_focus();
+                    if self.focus_compose_once && self.keys_ok {
+                        resp.request_focus();
+                        self.focus_compose_once = false;
                     }
-                });
-            },
-        );
+                },
+            );
+
+            if self.streaming {
+                if destructive_button(ui, th, "Stop")
+                    .on_hover_text("Stop generating (Esc)")
+                    .clicked()
+                {
+                    do_stop = true;
+                }
+            } else {
+                let enabled = self.keys_ok && self.editing_idx.is_none();
+                if compose_send_button(ui, th, enabled).clicked() && enabled {
+                    do_send = true;
+                }
+            }
+        });
 
         if do_stop {
             self.stop_generation();
@@ -1015,6 +1021,51 @@ impl ChatApp {
             self.send();
         }
     }
+}
+
+fn compose_button_width(ui: &egui::Ui, th: &Theme, label: &str) -> f32 {
+    let galley = ui.painter().layout_no_wrap(
+        label.to_owned(),
+        egui::FontId::proportional(th.type_scale.body),
+        th.palette.accent_fg,
+    );
+    galley.size().x + th.spacing.md * 2.0
+}
+
+/// Send action with symmetric horizontal padding (egui buttons inherit parent alignment).
+fn compose_send_button(ui: &mut egui::Ui, th: &Theme, enabled: bool) -> egui::Response {
+    let p = &th.palette;
+    let sp = &th.spacing;
+    let pad_x = sp.md;
+    let galley = ui.painter().layout_no_wrap(
+        "Send".to_owned(),
+        egui::FontId::proportional(th.type_scale.body),
+        p.accent_fg,
+    );
+    let size = egui::vec2(galley.size().x + pad_x * 2.0, sp.control_height);
+    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let (rect, response) = ui.allocate_exact_size(size, sense);
+
+    if ui.is_rect_visible(rect) {
+        let fill = if !enabled {
+            p.accent.gamma_multiply(0.4)
+        } else if response.is_pointer_button_down_on() {
+            p.accent.gamma_multiply(0.85)
+        } else if response.hovered() {
+            p.accent.gamma_multiply(0.95)
+        } else {
+            p.accent
+        };
+        ui.painter()
+            .rect(rect, sp.radius_md, fill, egui::Stroke::NONE, StrokeKind::Inside);
+        let text_pos = egui::pos2(
+            rect.min.x + pad_x,
+            rect.center().y - galley.size().y * 0.5,
+        );
+        ui.painter().galley(text_pos, galley, p.accent_fg);
+    }
+
+    response
 }
 
 fn truncate(s: &str, max: usize) -> String {
