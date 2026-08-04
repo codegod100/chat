@@ -982,7 +982,9 @@ impl ChatApp {
 
             let trail_label = if self.streaming { "Stop" } else { "Send" };
             let trail_w = compose_action_width(ui, th, trail_label);
-            let field_w = (ui.available_width() - trail_w - th.spacing.sm).max(1.0);
+            let trail_gutter = th.spacing.sm;
+            let field_w =
+                (ui.available_width() - trail_w - th.spacing.sm - trail_gutter).max(1.0);
 
             ui.allocate_ui_with_layout(
                 egui::vec2(field_w, 0.0),
@@ -1013,6 +1015,7 @@ impl ChatApp {
                     }
                 });
             }
+            ui.add_space(trail_gutter);
         });
 
         if do_stop {
