@@ -115,6 +115,32 @@ pub fn from_keys(keys: &BTreeMap<String, String>) -> Vec<Provider> {
     out
 }
 
+/// Built-in free tier when no OpenBao token (OpenCode Zen, no API key required).
+pub fn free_defaults() -> Vec<Provider> {
+    vec![Provider {
+        id: "opencode",
+        label: "OpenCode Zen (free)",
+        base_url: "https://opencode.ai/zen/v1".into(),
+        api_key: String::new(),
+        default_model: "deepseek-v4-flash-free".into(),
+        fetch_models: true,
+    }]
+}
+
+fn is_free_model_id(id: &str) -> bool {
+    id == "big-pickle" || id.contains("-free")
+}
+
+fn with_auth(
+    req: reqwest::blocking::RequestBuilder,
+    provider: &Provider,
+) -> reqwest::blocking::RequestBuilder {
+    if provider.api_key.is_empty() {
+        return req;
+    }
+    req.header("Authorization", format!("Bearer {}", provider.api_key))
+}
+
 pub fn list_models(provider: &Provider) -> Result<Vec<ModelChoice>, String> {
     if !provider.fetch_models {
         return Ok(vec![ModelChoice {
@@ -129,9 +155,7 @@ pub fn list_models(provider: &Provider) -> Result<Vec<ModelChoice>, String> {
         .map_err(|e| e.to_string())?;
 
     let url = format!("{}/models", provider.base_url.trim_end_matches('/'));
-    let mut req = http
-        .get(&url)
-        .header("Authorization", format!("Bearer {}", provider.api_key));
+    let mut req = with_auth(http.get(&url), provider);
 
     if provider.id == "openrouter" {
         req = req
@@ -156,6 +180,7 @@ pub fn list_models(provider: &Provider) -> Result<Vec<ModelChoice>, String> {
     let mut models: Vec<ModelChoice> = parsed
         .data
         .into_iter()
+        .filter(|m| provider.api_key.is_empty() || is_free_model_id(&m.id))
         .map(|m| ModelChoice {
             id: m.id.clone(),
             label: m.id,
@@ -197,8 +222,40 @@ pub fn pick_default_model(provider: &Provider, models: &[ModelChoice]) -> String
             return m.id.clone();
         }
     }
+    if provider.id == "opencode" && provider.api_key.is_empty() {
+        if let Some(m) = models
+            .iter()
+            .find(|m| m.id == provider.default_model)
+        {
+            return m.id.clone();
+        }
+        if let Some(m) = models.iter().find(|m| is_free_model_id(&m.id)) {
+            return m.id.clone();
+        }
+    }
     models
         .first()
         .map(|m| m.id.clone())
         .unwrap_or_else(|| provider.default_model.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn free_defaults_use_opencode_zen() {
+        let providers = free_defaults();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].id, "opencode");
+        assert!(providers[0].api_key.is_empty());
+        assert_eq!(providers[0].default_model, "deepseek-v4-flash-free");
+    }
+
+    #[test]
+    fn free_model_ids() {
+        assert!(is_free_model_id("deepseek-v4-flash-free"));
+        assert!(is_free_model_id("big-pickle"));
+        assert!(!is_free_model_id("deepseek-v4-flash"));
+    }
 }

@@ -142,10 +142,24 @@ impl ChatApp {
     fn load_keys(&mut self) {
         self.status = "Loading keys from OpenBao…".into();
         match bao::fetch_ai_keys() {
-            Ok(keys) => self.apply_keys(keys),
+            Ok(keys) => {
+                let providers = providers::from_keys(&keys);
+                if providers.is_empty() {
+                    self.apply_free_providers(
+                        "No LLM keys in OpenBao — using free models".into(),
+                    );
+                } else {
+                    self.apply_keys(keys);
+                }
+            }
+            Err(bao::BaoError::NoToken) => {
+                self.apply_free_providers(
+                    "No OpenBao token — using free models".into(),
+                );
+            }
             Err(e) => {
                 self.keys_ok = false;
-                self.need_token = matches!(e, bao::BaoError::NoToken);
+                self.need_token = false;
                 self.providers.clear();
                 self.models.clear();
                 self.model_id.clear();
@@ -154,16 +168,22 @@ impl ChatApp {
         }
     }
 
+    fn apply_free_providers(&mut self, status: String) {
+        let providers = providers::free_defaults();
+        self.providers = providers;
+        self.provider_idx = 0;
+        self.keys_ok = true;
+        self.need_token = true;
+        self.status = status;
+        self.pending_models = true;
+    }
+
     fn apply_keys(&mut self, keys: BTreeMap<String, String>) {
         let providers = providers::from_keys(&keys);
         if providers.is_empty() {
-            self.keys_ok = false;
-            self.need_token = false;
-            self.providers.clear();
-            self.models.clear();
-            self.model_id.clear();
-            self.status =
-                "No known LLM keys in secret/ai-api-keys (need OPENROUTER_, DEEPSEEK_, …)".into();
+            self.apply_free_providers(
+                "No known LLM keys in secret/ai-api-keys — using free models".into(),
+            );
             return;
         }
 
@@ -667,7 +687,7 @@ impl ChatApp {
             ui.horizontal(|ui| {
                 ui.add(
                     TextEdit::singleline(&mut self.token_draft)
-                        .hint_text("OpenBao token")
+                        .hint_text("OpenBao token (optional — unlock your API keys)")
                         .password(true)
                         .desired_width(ui.available_width().min(320.0)),
                 );

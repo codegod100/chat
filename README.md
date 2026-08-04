@@ -49,6 +49,8 @@ Conversations are saved as JSON under `$XDG_DATA_HOME/uk.nandi.chat/sessions` (o
 
 Phone package (`uk.nandi.chat`, aarch64). Same chat UI; paste an OpenBao token in-app when no `~/.bao-token` is available (or `adb push` to `/data/local/tmp/bao-token`).
 
+Without an OpenBao token the app uses **OpenCode Zen free models** (no API key). Paste a token to load your keys from `secret/ai-api-keys`.
+
 ```bash
 just apk-release          # → android/target/release/apk/chat.apk
 just publish-apk          # → https://chat-apk.boxd.sh/chat.apk

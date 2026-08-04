@@ -110,9 +110,11 @@ fn run_stream(
 
     let mut req = http
         .post(&url)
-        .header("Authorization", format!("Bearer {}", provider.api_key))
         .header("Content-Type", "application/json")
         .json(&body);
+    if !provider.api_key.is_empty() {
+        req = req.header("Authorization", format!("Bearer {}", provider.api_key));
+    }
 
     if provider.id == "openrouter" {
         req = req
@@ -170,13 +172,23 @@ fn parse_sse<R: Read>(
             Err(_) => continue,
         };
 
-        // Prefer delta.content; some gateways use message.content.
+        // Prefer delta.content; some gateways use message.content or reasoning_content.
         let content = value
             .pointer("/choices/0/delta/content")
             .and_then(|v| v.as_str())
             .or_else(|| {
                 value
+                    .pointer("/choices/0/delta/reasoning_content")
+                    .and_then(|v| v.as_str())
+            })
+            .or_else(|| {
+                value
                     .pointer("/choices/0/message/content")
+                    .and_then(|v| v.as_str())
+            })
+            .or_else(|| {
+                value
+                    .pointer("/choices/0/message/reasoning_content")
                     .and_then(|v| v.as_str())
             });
 
