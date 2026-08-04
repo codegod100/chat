@@ -1,7 +1,7 @@
-# Build aarch64 release APK and publish to https://chat-apk.boxd.sh
+# Build aarch64 release APK and upload as a GitHub Actions artifact.
 #
-# Secrets from OpenBao (via OPENBAO_TOKEN repository secret):
-#   secret/data/chat  → BOXD_TOKEN, CHAT_ANDROID_KEYSTORE_B64
+# Signing keystore from OpenBao (via OPENBAO_TOKEN repository secret):
+#   secret/data/chat → CHAT_ANDROID_KEYSTORE_B64
 #   (optional passwords: CHAT_ANDROID_KEYSTORE_PASSWORD, CHAT_ANDROID_KEY_ALIAS, CHAT_ANDROID_KEY_PASSWORD)
 
 name: APK
@@ -16,8 +16,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish:
-    name: Build & publish APK
+  build:
+    name: Build APK
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,12 +27,12 @@ jobs:
           set -euo pipefail
           git clone --depth 1 https://tangled.org/nandi.uk/vidya ../vidya
 
-      - name: Fetch secrets from OpenBao
+      - name: Fetch signing keystore from OpenBao
         env:
           OPENBAO_ADDR: https://openbao.boxd.sh
           OPENBAO_TOKEN: ${{ secrets.OPENBAO_TOKEN }}
           OPENBAO_SECRET_PATH: secret/data/ai-api-keys
-          OPENBAO_EXTRA_PATHS: secret/data/cachix,secret/data/chat
+          OPENBAO_EXTRA_PATHS: secret/data/chat
         run: |
           set -euo pipefail
           if [[ -z "${OPENBAO_TOKEN:-}" ]]; then
@@ -41,7 +41,7 @@ jobs:
           fi
           chmod +x scripts/fetch-openbao-env.sh
           ./scripts/fetch-openbao-env.sh --github-env \
-            --keys BOXD_TOKEN,CHAT_ANDROID_KEYSTORE_B64
+            --keys CHAT_ANDROID_KEYSTORE_B64
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -85,15 +85,3 @@ jobs:
           name: chat-apk
           path: android/target/release/apk/chat.apk
           if-no-files-found: error
-
-      - name: Install boxd CLI
-        run: |
-          curl -fsSL https://boxd.sh/downloads/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Publish APK to boxd
-        env:
-          BOXD_TOKEN: ${{ env.BOXD_TOKEN }}
-        run: |
-          chmod +x scripts/publish-apk.sh
-          ./scripts/publish-apk.sh

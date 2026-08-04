@@ -61,7 +61,7 @@ Needs Android NDK (`ANDROID_NDK_HOME`, default `~/.local/share/android-ndk-r29`)
 On every push to `main`:
 
 - **Cachix** — `nix build .#chat` and push store paths to [codegod100.cachix.org](https://codegod100.cachix.org) (`.github/workflows/cachix.yml`)
-- **APK** — build aarch64 release and publish to [https://chat-apk.boxd.sh/chat.apk](https://chat-apk.boxd.sh/chat.apk) (`.github/workflows/apk.yml`); also uploads `chat.apk` as a GitHub Actions artifact
+- **APK** — build aarch64 release and upload `chat.apk` as a GitHub Actions artifact (`.github/workflows/apk.yml`)
 
 Required repository secret on [codegod100/chat](https://github.com/codegod100/chat):
 
@@ -74,7 +74,7 @@ OpenBao paths (via `fetch-openbao-env.sh`):
 | Path | Keys |
 |------|------|
 | `secret/data/cachix` | `CACHIX_AUTH_TOKEN` |
-| `secret/data/chat` | `BOXD_TOKEN`, `CHAT_ANDROID_KEYSTORE_B64` |
+| `secret/data/chat` | `CHAT_ANDROID_KEYSTORE_B64` |
 
 Optional keystore fields in `secret/data/chat` (defaults: password `android`, alias `chat`):
 
