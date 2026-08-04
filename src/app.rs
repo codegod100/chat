@@ -988,21 +988,23 @@ impl ChatApp {
                 }
             },
             |ui| {
-                ui.add_space(th.spacing.sm);
-                if self.streaming {
-                    if destructive_button(ui, th, "Stop")
-                        .on_hover_text("Stop generating (Esc)")
-                        .clicked()
-                    {
-                        do_stop = true;
-                    }
-                } else {
-                    ui.add_enabled_ui(self.keys_ok && self.editing_idx.is_none(), |ui| {
-                        if primary_button(ui, th, "Send").clicked() {
-                            do_send = true;
+                // Keep actions LTR so egui doesn't mirror button label padding.
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    if self.streaming {
+                        if destructive_button(ui, th, "Stop")
+                            .on_hover_text("Stop generating (Esc)")
+                            .clicked()
+                        {
+                            do_stop = true;
                         }
-                    });
-                }
+                    } else {
+                        ui.add_enabled_ui(self.keys_ok && self.editing_idx.is_none(), |ui| {
+                            if primary_button(ui, th, "Send").clicked() {
+                                do_send = true;
+                            }
+                        });
+                    }
+                });
             },
         );
 
