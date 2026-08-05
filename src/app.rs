@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 
 use eframe::egui::{self, Align, Event, Key, Layout, RichText, ScrollArea, TextEdit};
 use vidya::{
-    apply, body, button, consume_escape, destructive_button, dialog, dim_label, primary_button,
-    text_field_multiline, text_field_singleline, title, top_header, Theme, TypeScale,
+    apply, body, button, consume_escape, destructive_button, dialog, dim_label, follow_scroll,
+    primary_button, text_field_multiline, text_field_singleline, title, top_header, Theme,
+    TypeScale,
 };
 
 use crate::bao;
@@ -876,15 +877,11 @@ impl ChatApp {
             return;
         }
 
-        let scroll = ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .stick_to_bottom(self.scroll_follow);
-
         let mut start_edit: Option<usize> = None;
         let mut cancel_edit = false;
         let mut do_resubmit = false;
 
-        let output = scroll.show(ui, |ui| {
+        follow_scroll(ui, &mut self.scroll_follow, "chat_messages", |ui| {
             ui.set_min_width(ui.available_width());
             let max_w = ui.available_width();
             let streaming = self.streaming;
@@ -1002,13 +999,6 @@ impl ChatApp {
         }
         if do_resubmit {
             self.resubmit_edit();
-        }
-
-        let scrolled = ui.input(|i| i.smooth_scroll_delta.y.abs() > 0.5);
-        if scrolled {
-            let at_bottom =
-                output.state.offset.y + output.inner_rect.height() + 48.0 >= output.content_size.y;
-            self.scroll_follow = at_bottom;
         }
     }
 
