@@ -17,6 +17,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 chat = { path = ".." }
+vidya = { path = "../../vidya" }
 # Shared glow + fonts only — do NOT enable wayland/x11 here.
 eframe = { version = "0.31", default-features = false, features = [
     "default_fonts",

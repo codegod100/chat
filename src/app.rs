@@ -4,8 +4,9 @@ use std::collections::BTreeMap;
 
 use eframe::egui::{self, Align, Event, Key, Layout, RichText, ScrollArea, TextEdit};
 use vidya::{
-    apply, body, button, destructive_button, dialog, dim_label, primary_button,
-    reserve_system_chrome, text_field_multiline, text_field_singleline, title, Theme, TypeScale,
+    apply, body, button, consume_escape, destructive_button, dialog, dim_label, follow_scroll,
+    primary_button, text_field_multiline, text_field_singleline, title, top_header, Theme,
+    TypeScale,
 };
 
 use crate::bao;
@@ -151,17 +152,13 @@ impl ChatApp {
             Ok(keys) => {
                 let providers = providers::from_keys(&keys);
                 if providers.is_empty() {
-                    self.apply_free_providers(
-                        "No LLM keys in OpenBao — using free models".into(),
-                    );
+                    self.apply_free_providers("No LLM keys in OpenBao — using free models".into());
                 } else {
                     self.apply_keys(keys);
                 }
             }
             Err(bao::BaoError::NoToken) => {
-                self.apply_free_providers(
-                    "No OpenBao token — using free models".into(),
-                );
+                self.apply_free_providers("No OpenBao token — using free models".into());
             }
             Err(e) => {
                 self.keys_ok = false;
@@ -229,8 +226,8 @@ impl ChatApp {
                     .pending_model_id
                     .take()
                     .filter(|id| models.iter().any(|m| m.id == *id));
-                self.model_id = preferred
-                    .unwrap_or_else(|| providers::pick_default_model(&provider, &models));
+                self.model_id =
+                    preferred.unwrap_or_else(|| providers::pick_default_model(&provider, &models));
                 self.models = models;
                 self.status = format!("{} · {}", provider.label, self.model_id);
             }
@@ -544,8 +541,6 @@ impl eframe::App for ChatApp {
 
         let th = chat_theme();
         apply(ctx, &th);
-        // Edge-to-edge NativeActivity: keep chrome clear of status / gesture bars.
-        reserve_system_chrome(ctx, &th);
 
         // Enter sends (Shift+Enter = newline). Consume bare Enter before TextEdit.
         let mut send_chord = false;
@@ -580,38 +575,25 @@ impl eframe::App for ChatApp {
             });
         }
 
-        // Escape: stop generation, or abandon an inline edit.
-        if ctx.input(|i| i.key_pressed(Key::Escape)) {
-            if self.streaming {
-                self.stop_generation();
-            } else if self.editing_idx.is_some() {
-                self.clear_editing();
-            }
-        }
-
-        egui::TopBottomPanel::top("header")
-            .frame(th.header_frame())
-            .show(ctx, |ui| {
-                self.ui_header(ui, &th);
-            });
+        top_header(ctx, &th, |ui| {
+            self.ui_header(ui, &th);
+        });
 
         egui::TopBottomPanel::bottom("compose")
-            .frame(
-                egui::Frame::new()
-                    .fill(th.palette.headerbar_bg)
-                    .inner_margin(egui::Margin::symmetric(th.spacing.md as i8, th.spacing.md as i8))
-                    .stroke(egui::Stroke::new(1.0_f32, th.palette.border_soft)),
-            )
+            .frame(th.header_frame())
             .show(ctx, |ui| {
+                if consume_escape(ui) {
+                    if self.streaming {
+                        self.stop_generation();
+                    } else if self.editing_idx.is_some() {
+                        self.clear_editing();
+                    }
+                }
                 self.ui_compose(ui, &th, send_chord);
             });
 
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(th.palette.view_bg)
-                    .inner_margin(egui::Margin::symmetric(th.spacing.lg as i8, th.spacing.md as i8)),
-            )
+            .frame(th.page_frame())
             .show(ctx, |ui| {
                 self.ui_messages(ui, &th);
             });
@@ -770,10 +752,7 @@ impl ChatApp {
                     dim_label(ui, th, "Filter");
                     ui.add_space(th.spacing.sm);
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if button(ui, th, "↻")
-                            .on_hover_text("Refresh")
-                            .clicked()
-                        {
+                        if button(ui, th, "↻").on_hover_text("Refresh").clicked() {
                             refresh = true;
                         }
                         let _ = text_field_singleline(ui, th, &mut dlg.filter);
@@ -798,13 +777,13 @@ impl ChatApp {
                         }
                         for chat in &filtered {
                             let is_sel = selected.as_deref() == Some(chat.id.as_str());
-                            let title = RichText::new(&chat.title)
-                                .size(th.type_scale.body)
-                                .color(if is_sel {
+                            let title = RichText::new(&chat.title).size(th.type_scale.body).color(
+                                if is_sel {
                                     th.palette.accent_fg
                                 } else {
                                     th.palette.text
-                                });
+                                },
+                            );
                             let meta = format!(
                                 "{} · {} · {}",
                                 chat.provider_id,
@@ -836,13 +815,13 @@ impl ChatApp {
                                     ui.set_min_width(ui.available_width());
                                     ui.label(title);
                                     ui.label(
-                                        RichText::new(meta)
-                                            .size(th.type_scale.caption)
-                                            .color(if is_sel {
+                                        RichText::new(meta).size(th.type_scale.caption).color(
+                                            if is_sel {
                                                 th.palette.accent_fg
                                             } else {
                                                 th.palette.text_secondary
-                                            }),
+                                            },
+                                        ),
                                     );
                                 });
                             let resp = row.response.interact(egui::Sense::click());
@@ -898,15 +877,11 @@ impl ChatApp {
             return;
         }
 
-        let scroll = ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .stick_to_bottom(self.scroll_follow);
-
         let mut start_edit: Option<usize> = None;
         let mut cancel_edit = false;
         let mut do_resubmit = false;
 
-        let output = scroll.show(ui, |ui| {
+        follow_scroll(ui, &mut self.scroll_follow, "chat_messages", |ui| {
             ui.set_min_width(ui.available_width());
             let max_w = ui.available_width();
             let streaming = self.streaming;
@@ -957,7 +932,8 @@ impl ChatApp {
                                     });
                                     ui.add_space(2.0);
                                     if is_editing {
-                                        let _ = text_field_multiline(ui, th, &mut self.edit_draft, 4);
+                                        let _ =
+                                            text_field_multiline(ui, th, &mut self.edit_draft, 4);
                                         ui.add_space(th.spacing.xs);
                                         ui.horizontal(|ui| {
                                             ui.spacing_mut().item_spacing.x = th.spacing.sm;
@@ -1023,13 +999,6 @@ impl ChatApp {
         }
         if do_resubmit {
             self.resubmit_edit();
-        }
-
-        let scrolled = ui.input(|i| i.smooth_scroll_delta.y.abs() > 0.5);
-        if scrolled {
-            let at_bottom = output.state.offset.y + output.inner_rect.height() + 48.0
-                >= output.content_size.y;
-            self.scroll_follow = at_bottom;
         }
     }
 

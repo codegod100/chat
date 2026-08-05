@@ -1,12 +1,9 @@
-# Build flake packages on merge to main and push store paths to Cachix.
-# Cache: https://codegod100.cachix.org
+# Build flake packages on merge to main via nixbuild.net.
 #
-# CACHIX_AUTH_TOKEN is pulled at runtime from OpenBao (openbao.boxd.sh),
-# same KV layout as sleek/eve (`secret/data/ai-api-keys`, plus `secret/data/cachix`).
-#
-# Requires repository secret OPENBAO_TOKEN (read token for OpenBao).
+# OPENBAO_TOKEN unlocks NIXBUILD_TOKEN at runtime (secret/data/ai-api-keys).
+# nixbuild.net stores build outputs — no separate Cachix push.
 
-name: Cachix
+name: Nix
 
 on:
   push:
@@ -19,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build & push (${{ matrix.attr }})
+    name: Build (${{ matrix.attr }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -33,7 +30,6 @@ jobs:
           OPENBAO_ADDR: https://openbao.boxd.sh
           OPENBAO_TOKEN: ${{ secrets.OPENBAO_TOKEN }}
           OPENBAO_SECRET_PATH: secret/data/ai-api-keys
-          OPENBAO_EXTRA_PATHS: secret/data/cachix
         run: |
           set -euo pipefail
           if [[ -z "${OPENBAO_TOKEN:-}" ]]; then
@@ -41,18 +37,18 @@ jobs:
             exit 1
           fi
           chmod +x scripts/fetch-openbao-env.sh
-          ./scripts/fetch-openbao-env.sh --github-env --keys CACHIX_AUTH_TOKEN
+          ./scripts/fetch-openbao-env.sh --github-env --keys NIXBUILD_TOKEN
 
-      - uses: cachix/install-nix-action@v31
+      - uses: nixbuild/nix-quick-install-action@v35
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
-          extra_nix_config: |
+          nix_conf: |
             accept-flake-config = true
+            experimental-features = nix-command flakes
 
-      - uses: cachix/cachix-action@v17
+      - uses: nixbuild/nixbuild-action@v26
         with:
-          name: codegod100
-          authToken: ${{ env.CACHIX_AUTH_TOKEN }}
+          nixbuild_token: ${{ env.NIXBUILD_TOKEN }}
 
       - name: nix build .#${{ matrix.attr }}
         run: nix build ".#${{ matrix.attr }}" -L --print-build-logs
