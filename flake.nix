@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     vidya = {
-      url = "git+https://tangled.org/nandi.uk/vidya";
+      url = "github:codegod100/vidya";
       flake = false;
     };
   };
