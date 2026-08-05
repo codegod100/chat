@@ -3,17 +3,25 @@
 //! Desktop sessions use the root crate (`cargo run` / `nix run`).
 
 use chat::ChatApp;
+use vidya::with_app_icon_id;
 
 const APP_TITLE: &str = "Chat";
 const APP_ID: &str = "uk.nandi.chat";
 
+/// Window / launcher icon (256² PNG; source SVG in `assets/uk.nandi.chat.svg`).
+const APP_ICON_PNG: &[u8] = include_bytes!("../../assets/uk.nandi.chat-256.png");
+
 #[cfg(not(target_os = "android"))]
 pub fn run_desktop() -> eframe::Result {
-    let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
+    let viewport = with_app_icon_id(
+        eframe::egui::ViewportBuilder::default()
             .with_inner_size([420.0, 720.0])
-            .with_title(APP_TITLE)
-            .with_app_id(APP_ID),
+            .with_title(APP_TITLE),
+        APP_ID,
+        APP_ICON_PNG,
+    );
+    let options = eframe::NativeOptions {
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
@@ -25,8 +33,13 @@ pub fn run_desktop() -> eframe::Result {
 
 #[cfg(target_os = "android")]
 pub fn run_android(android_app: winit::platform::android::activity::AndroidApp) -> eframe::Result {
+    let viewport = with_app_icon_id(
+        eframe::egui::ViewportBuilder::default().with_title(APP_TITLE),
+        APP_ID,
+        APP_ICON_PNG,
+    );
     let mut options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default().with_title(APP_TITLE),
+        viewport,
         ..Default::default()
     };
     options.android_app = Some(android_app);
