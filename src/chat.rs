@@ -26,7 +26,10 @@ pub struct Message {
 
 #[derive(Debug, Clone)]
 pub enum ChatEvent {
+    /// Visible assistant reply tokens.
     Delta(String),
+    /// Model-internal reasoning is in flight (not shown in the chat bubble).
+    ReasoningDelta,
     Done,
     Error(String),
 }
@@ -172,29 +175,36 @@ fn parse_sse<R: Read>(
             Err(_) => continue,
         };
 
-        // Prefer delta.content; some gateways use message.content or reasoning_content.
+        // Visible reply text — never mix in reasoning_content.
         let content = value
             .pointer("/choices/0/delta/content")
             .and_then(|v| v.as_str())
             .or_else(|| {
                 value
-                    .pointer("/choices/0/delta/reasoning_content")
-                    .and_then(|v| v.as_str())
-            })
-            .or_else(|| {
-                value
                     .pointer("/choices/0/message/content")
-                    .and_then(|v| v.as_str())
-            })
-            .or_else(|| {
-                value
-                    .pointer("/choices/0/message/reasoning_content")
                     .and_then(|v| v.as_str())
             });
 
         if let Some(text) = content {
             if !text.is_empty() {
                 if tx.send(ChatEvent::Delta(text.to_string())).is_err() {
+                    return Ok(());
+                }
+            }
+        }
+
+        let reasoning = value
+            .pointer("/choices/0/delta/reasoning_content")
+            .and_then(|v| v.as_str())
+            .or_else(|| {
+                value
+                    .pointer("/choices/0/message/reasoning_content")
+                    .and_then(|v| v.as_str())
+            });
+
+        if let Some(text) = reasoning {
+            if !text.is_empty() {
+                if tx.send(ChatEvent::ReasoningDelta).is_err() {
                     return Ok(());
                 }
             }
@@ -248,6 +258,7 @@ mod tests {
             }
             match handle.rx.recv_timeout(Duration::from_millis(500)) {
                 Ok(ChatEvent::Delta(s)) => out.push_str(&s),
+                Ok(ChatEvent::ReasoningDelta) => {}
                 Ok(ChatEvent::Done) => break,
                 Ok(ChatEvent::Error(e)) => panic!("stream error: {e}"),
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
