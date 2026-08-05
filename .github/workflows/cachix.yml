@@ -1,10 +1,9 @@
 # Build flake packages on merge to main and push store paths to Cachix.
+# Builds run on nixbuild.net; Cachix is for substitute pull/push.
 # Cache: https://codegod100.cachix.org
 #
-# CACHIX_AUTH_TOKEN is pulled at runtime from OpenBao (openbao.boxd.sh),
-# same KV layout as sleek/eve (`secret/data/ai-api-keys`, plus `secret/data/cachix`).
-#
-# Requires repository secret OPENBAO_TOKEN (read token for OpenBao).
+# OPENBAO_TOKEN unlocks NIXBUILD_TOKEN + CACHIX_AUTH_TOKEN at runtime
+# (secret/data/ai-api-keys, plus secret/data/cachix).
 
 name: Cachix
 
@@ -41,13 +40,18 @@ jobs:
             exit 1
           fi
           chmod +x scripts/fetch-openbao-env.sh
-          ./scripts/fetch-openbao-env.sh --github-env --keys CACHIX_AUTH_TOKEN
+          ./scripts/fetch-openbao-env.sh --github-env --keys NIXBUILD_TOKEN,CACHIX_AUTH_TOKEN
 
-      - uses: cachix/install-nix-action@v31
+      - uses: nixbuild/nix-quick-install-action@v35
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
-          extra_nix_config: |
+          nix_conf: |
             accept-flake-config = true
+            experimental-features = nix-command flakes
+
+      - uses: nixbuild/nixbuild-action@v26
+        with:
+          nixbuild_token: ${{ env.NIXBUILD_TOKEN }}
 
       - uses: cachix/cachix-action@v17
         with:
