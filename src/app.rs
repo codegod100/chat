@@ -66,6 +66,10 @@ pub struct ChatApp {
     /// Shown when OpenBao has no stored token (common on Android).
     need_token: bool,
     token_draft: String,
+    /// Collapsed token bar on narrow screens.
+    token_expanded: bool,
+    /// Model is streaming reasoning tokens (hidden from the bubble).
+    streaming_thinking: bool,
 
     stream: Option<StreamHandle>,
     streaming: bool,
@@ -119,6 +123,8 @@ impl ChatApp {
             keys_ok: false,
             need_token: false,
             token_draft: String::new(),
+            token_expanded: false,
+            streaming_thinking: false,
             stream: None,
             streaming: false,
             scroll_follow: true,
@@ -273,6 +279,7 @@ impl ChatApp {
             h.cancel();
         }
         self.streaming = false;
+        self.streaming_thinking = false;
     }
 
     fn clear_editing(&mut self) {
@@ -350,18 +357,25 @@ impl ChatApp {
         };
 
         let mut deltas = Vec::new();
+        let mut reasoning = false;
         let mut done = false;
         let mut error: Option<String> = None;
 
         while let Ok(ev) = handle.rx.try_recv() {
             match ev {
                 ChatEvent::Delta(s) => deltas.push(s),
+                ChatEvent::ReasoningDelta => reasoning = true,
                 ChatEvent::Done => done = true,
                 ChatEvent::Error(e) => error = Some(e),
             }
         }
 
+        if reasoning {
+            self.streaming_thinking = true;
+            self.scroll_follow = true;
+        }
         if !deltas.is_empty() {
+            self.streaming_thinking = false;
             if let Some(last) = self.messages.last_mut() {
                 if last.role == Role::Assistant {
                     for d in deltas {
@@ -385,6 +399,7 @@ impl ChatApp {
                 self.status = e;
             }
             self.streaming = false;
+            self.streaming_thinking = false;
             self.stream = None;
             self.persist_current();
             return;
@@ -392,6 +407,7 @@ impl ChatApp {
 
         if done {
             self.streaming = false;
+            self.streaming_thinking = false;
             self.stream = None;
             self.persist_current();
             if let Some(p) = self.current_provider() {
@@ -424,6 +440,7 @@ impl ChatApp {
         self.clear_editing();
         self.scroll_follow = true;
         self.streaming = true;
+        self.streaming_thinking = false;
         self.status = format!("Thinking… ({})", self.model_id);
 
         let mut req_history = self.messages.clone();
@@ -582,12 +599,7 @@ impl eframe::App for ChatApp {
             .frame(
                 egui::Frame::new()
                     .fill(th.palette.headerbar_bg)
-                    .inner_margin(egui::Margin {
-                        left: th.spacing.md as i8,
-                        right: th.spacing.xl as i8,
-                        top: th.spacing.sm as i8,
-                        bottom: th.spacing.md as i8,
-                    })
+                    .inner_margin(egui::Margin::symmetric(th.spacing.md as i8, th.spacing.md as i8))
                     .stroke(egui::Stroke::new(1.0_f32, th.palette.border_soft)),
             )
             .show(ctx, |ui| {
@@ -615,53 +627,12 @@ impl ChatApp {
         let mut new_chat = false;
         let mut open_resume = false;
         let mut provider_changed = false;
+        let narrow = ui.available_width() < 520.0;
 
+        // Row 1: title + actions (always).
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = th.spacing.sm;
-
             title(ui, th, "Chat");
-
-            ui.add_space(th.spacing.md);
-
-            if !self.providers.is_empty() {
-                let prev = self.provider_idx;
-                egui::ComboBox::from_id_salt("provider")
-                    .selected_text(
-                        self.current_provider()
-                            .map(|p| p.label)
-                            .unwrap_or("Provider"),
-                    )
-                    .width(140.0)
-                    .show_ui(ui, |ui| {
-                        for (i, p) in self.providers.iter().enumerate() {
-                            if ui
-                                .selectable_value(&mut self.provider_idx, i, p.label)
-                                .clicked()
-                            {
-                                // selection applied via selectable_value
-                            }
-                        }
-                    });
-                if self.provider_idx != prev {
-                    provider_changed = true;
-                }
-
-                ui.add_space(th.spacing.xs);
-
-                let model_label = if self.model_id.is_empty() {
-                    "Model"
-                } else {
-                    self.model_id.as_str()
-                };
-                egui::ComboBox::from_id_salt("model")
-                    .selected_text(truncate(model_label, 42))
-                    .width(280.0)
-                    .show_ui(ui, |ui| {
-                        for m in &self.models {
-                            ui.selectable_value(&mut self.model_id, m.id.clone(), &m.label);
-                        }
-                    });
-            }
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if button(ui, th, "Clear").clicked() {
@@ -679,22 +650,84 @@ impl ChatApp {
             });
         });
 
+        // Row 2: provider + model pickers (full width on narrow screens).
+        if !self.providers.is_empty() {
+            ui.add_space(th.spacing.xs);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = th.spacing.sm;
+
+                let avail = ui.available_width();
+                let provider_w = if narrow {
+                    (avail * 0.42).clamp(100.0, 160.0)
+                } else {
+                    140.0
+                };
+                let model_w = if narrow {
+                    (avail - provider_w - th.spacing.sm).max(80.0)
+                } else {
+                    220.0
+                };
+
+                let prev = self.provider_idx;
+                egui::ComboBox::from_id_salt("provider")
+                    .selected_text(
+                        self.current_provider()
+                            .map(|p| p.label)
+                            .unwrap_or("Provider"),
+                    )
+                    .width(provider_w)
+                    .show_ui(ui, |ui| {
+                        for (i, p) in self.providers.iter().enumerate() {
+                            ui.selectable_value(&mut self.provider_idx, i, p.label);
+                        }
+                    });
+                if self.provider_idx != prev {
+                    provider_changed = true;
+                }
+
+                let model_label = if self.model_id.is_empty() {
+                    "Model"
+                } else {
+                    self.model_id.as_str()
+                };
+                let max_chars = if narrow { 18 } else { 28 };
+                egui::ComboBox::from_id_salt("model")
+                    .selected_text(truncate(model_label, max_chars))
+                    .width(model_w)
+                    .show_ui(ui, |ui| {
+                        for m in &self.models {
+                            ui.selectable_value(&mut self.model_id, m.id.clone(), &m.label);
+                        }
+                    });
+            });
+        }
+
         ui.add_space(th.spacing.xs);
         dim_label(ui, th, &self.status);
 
         if self.need_token {
-            ui.add_space(th.spacing.sm);
-            ui.horizontal(|ui| {
-                ui.add(
-                    TextEdit::singleline(&mut self.token_draft)
-                        .hint_text("OpenBao token (optional — unlock your API keys)")
-                        .password(true)
-                        .desired_width(ui.available_width().min(320.0)),
-                );
-                if primary_button(ui, th, "Use token").clicked() {
-                    self.apply_token_draft();
-                }
-            });
+            ui.add_space(th.spacing.xs);
+            if self.token_expanded {
+                ui.vertical(|ui| {
+                    ui.spacing_mut().item_spacing.y = th.spacing.xs;
+                    ui.add(
+                        TextEdit::singleline(&mut self.token_draft)
+                            .hint_text("Paste OpenBao token")
+                            .password(true)
+                            .desired_width(ui.available_width()),
+                    );
+                    ui.horizontal(|ui| {
+                        if primary_button(ui, th, "Use token").clicked() {
+                            self.apply_token_draft();
+                        }
+                        if button(ui, th, "Cancel").clicked() {
+                            self.token_expanded = false;
+                        }
+                    });
+                });
+            } else if button(ui, th, "Unlock API keys").clicked() {
+                self.token_expanded = true;
+            }
         }
 
         if clear {
@@ -959,7 +992,12 @@ impl ChatApp {
                                 |ui| {
                                     ui.set_max_width(max_w);
                                     if content.is_empty() && streaming && is_last {
-                                        dim_label(ui, th, "…");
+                                        let hint = if self.streaming_thinking {
+                                            "Thinking…"
+                                        } else {
+                                            "…"
+                                        };
+                                        dim_label(ui, th, hint);
                                     } else {
                                         self.md.show(ui, th, &content);
                                     }
@@ -1056,7 +1094,7 @@ fn compose_action_width(ui: &egui::Ui, th: &Theme, label: &str) -> f32 {
             th.palette.accent_fg,
         )
     });
-    galley.size().x + pad_x * 2.0
+    (galley.size().x + pad_x * 2.0).max(72.0)
 }
 
 fn truncate(s: &str, max: usize) -> String {
